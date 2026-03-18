@@ -1,8 +1,11 @@
-import re
 import json
+import logging
+import re
 import requests
-from typing import Optional
 from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+logger = logging.getLogger("services.downdetector")
 
 
 class DowndetectorScraper:
@@ -24,7 +27,8 @@ class DowndetectorScraper:
                 r"var g_chart_data\s*=\s*(\[.*?\]);", resp.text, re.DOTALL
             )
             if not match:
-                return {"reports_1h": 0, "baseline": 0, "spike_ratio": 1.0}
+                logger.debug("[downdetector/%s] g_chart_data não encontrado na página", slug)
+                return {"reports_1h": 0, "baseline": 0.0, "spike_ratio": 1.0}
 
             data_points = json.loads(match.group(1))
             now = datetime.now(timezone.utc)
@@ -49,5 +53,18 @@ class DowndetectorScraper:
                 "baseline": round(baseline, 1),
                 "spike_ratio": round(spike_ratio, 2),
             }
-        except Exception:
-            return None
+        except requests.Timeout:
+            logger.warning("[downdetector/%s] Timeout ao consultar página", slug)
+        except requests.ConnectionError as e:
+            logger.warning("[downdetector/%s] Erro de conexão: %s", slug, e)
+        except requests.HTTPError as e:
+            logger.warning(
+                "[downdetector/%s] HTTP %s (possível bloqueio de scraping)",
+                slug,
+                e.response.status_code,
+            )
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error("[downdetector/%s] Erro ao parsear dados: %s", slug, e)
+        except Exception as e:
+            logger.error("[downdetector/%s] Erro inesperado: %s", slug, e)
+        return None

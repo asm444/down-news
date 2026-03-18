@@ -1,16 +1,9 @@
+import logging
+import re
 import time
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
-ICONS = {
-    "status_change_critical": "🔴",
-    "status_change": "🟠",
-    "maintenance": "🟡",
-    "resolved": "🟢",
-    "downdetector_spike": "🔴",
-    "new_incident": "🟠",
-}
 
 COLORS = {
     "critical": 0xFF0000,
@@ -20,6 +13,19 @@ COLORS = {
 }
 
 BRT = ZoneInfo("America/Sao_Paulo")
+
+logger = logging.getLogger("discord_notifier")
+
+# Caracteres de markdown Discord que podem ser injetados por APIs externas
+_MARKDOWN_RE = re.compile(r"[*_`~|<>\[\]()\\]")
+
+
+def _sanitize(text: str, max_len: int = 200) -> str:
+    """Remove markdown Discord e limita tamanho de strings vindas de APIs externas."""
+    if not isinstance(text, str):
+        return ""
+    cleaned = _MARKDOWN_RE.sub("", text)
+    return cleaned[:max_len]
 
 
 class DiscordNotifier:
@@ -43,27 +49,42 @@ class DiscordNotifier:
     def _send(self, channel: str, content: str, embed: dict):
         webhook_url = self.webhooks.get(channel)
         if not webhook_url:
+            logger.debug("Webhook não configurado para canal %s — pulando", channel)
             return
         payload = {"content": content, "embeds": [embed]}
         try:
-            requests.post(webhook_url, json=payload, timeout=10)
-        except Exception:
-            pass
+            resp = requests.post(webhook_url, json=payload, timeout=10)
+            if resp.status_code not in (200, 204):
+                logger.warning(
+                    "Discord retornou status %s para canal %s: %s",
+                    resp.status_code,
+                    channel,
+                    resp.text[:200],
+                )
+        except requests.Timeout:
+            logger.error("Timeout ao enviar webhook para canal %s", channel)
+        except requests.ConnectionError as e:
+            logger.error("Erro de conexão ao enviar webhook para %s: %s", channel, e)
+        except Exception as e:
+            logger.error("Erro inesperado ao enviar webhook para %s: %s", channel, e)
 
     def _build_embed(
         self, change: dict, service_config: dict, current_state: dict
     ) -> dict:
         now_brt = datetime.now(BRT).strftime("%H:%M BRT")
         change_type = change.get("type", "")
+        # service_name vem de config local (confiável), não de API externa
         service_name = service_config.get("name", change["service"])
+        # base_url vem de config local (confiável)
         base_url = service_config.get("base_url", "")
         dd = current_state.get("downdetector_br", {})
 
         if change_type == "resolved":
             title = f"🟢 [RESOLVIDO] {service_name} — Serviço normalizado"
             color = COLORS["resolved"]
+            from_status = _sanitize(change.get("from", "degraded"))
             description = (
-                f"⏱ Status anterior: `{change.get('from', 'degraded')}`\n"
+                f"⏱ Status anterior: `{from_status}`\n"
                 f"🕐 Resolvido: {now_brt}"
             )
 
@@ -71,7 +92,7 @@ class DiscordNotifier:
             title = f"🔴 [SPIKE BR] {service_name} — Alto volume de relatos"
             color = COLORS["critical"]
             description = (
-                f"📣 Relatos na última hora: **{dd.get('reports_1h', 0)}**\n"
+                f"📣 Relatos na última hora: **{int(dd.get('reports_1h', 0))}**\n"
                 f"📊 Spike: **{change.get('spike_ratio', 0):.1f}x** acima do normal\n"
                 f"🕐 Detectado: {now_brt}"
             )
@@ -82,17 +103,24 @@ class DiscordNotifier:
             icon = "🔴" if is_critical else "🟠"
             title = f"{icon} [{label}] {service_name}"
             color = COLORS["critical"] if is_critical else COLORS["degraded"]
+
+            # Dados de incidentes vêm de API externa — sanitizar
             incident = change.get("incident", {})
+            incident_name = _sanitize(incident.get("name", ""))
+            from_status = _sanitize(change.get("from", "?"))
+            to_status = _sanitize(change.get("to", "?"))
+
             lines = [
-                f"📊 Status: `{change.get('from', '?')}` → `{change.get('to', '?')}`",
+                f"📊 Status: `{from_status}` → `{to_status}`",
                 f"🕐 Detectado: {now_brt}",
             ]
-            if incident.get("name"):
-                lines.insert(0, f"📍 Incidente: {incident['name']}")
+            if incident_name:
+                lines.insert(0, f"📍 Incidente: {incident_name}")
             if dd.get("reports_1h"):
                 spike_pct = (dd.get("spike_ratio", 1) - 1) * 100
                 lines.append(
-                    f"📣 Downdetector BR: **{dd['reports_1h']}** relatos (+{spike_pct:.0f}%)"
+                    f"📣 Downdetector BR: **{int(dd['reports_1h'])}** relatos"
+                    f" (+{spike_pct:.0f}%)"
                 )
             if base_url:
                 lines.append(f"🔗 {base_url}")
@@ -101,6 +129,6 @@ class DiscordNotifier:
         else:
             title = f"ℹ️ {service_name} — Atualização"
             color = 0x7289DA
-            description = str(change)
+            description = _sanitize(str(change), max_len=500)
 
-        return {"title": title, "description": description, "color": color}
+        return {"title": title[:256], "description": description[:4096], "color": color}

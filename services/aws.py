@@ -1,12 +1,16 @@
+import logging
 import requests
 from typing import Optional
 from .base import ServiceAdapter
 
+logger = logging.getLogger("services.aws")
+
 
 class AWSAdapter(ServiceAdapter):
     def fetch(self) -> Optional[dict]:
+        url = self.config["base_url"]
         try:
-            resp = requests.get(self.config["base_url"], timeout=10)
+            resp = requests.get(url, timeout=10)
             resp.raise_for_status()
             data = resp.json()
             events = data.get("events", [])
@@ -27,5 +31,14 @@ class AWSAdapter(ServiceAdapter):
                     for e in active[:5]
                 ],
             }
-        except Exception:
-            return None
+        except requests.Timeout:
+            logger.warning("[%s] Timeout ao consultar %s", self.service_id, url)
+        except requests.ConnectionError as e:
+            logger.warning("[%s] Erro de conexão: %s", self.service_id, e)
+        except requests.HTTPError as e:
+            logger.warning("[%s] HTTP %s: %s", self.service_id, e.response.status_code, url)
+        except (KeyError, ValueError) as e:
+            logger.error("[%s] Resposta inesperada da API: %s", self.service_id, e)
+        except Exception as e:
+            logger.error("[%s] Erro inesperado: %s", self.service_id, e)
+        return None
