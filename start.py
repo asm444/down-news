@@ -5,18 +5,51 @@ Down News — Wizard de configuração interativo.
 Configure serviços monitorados, regiões do Downdetector e canais Discord
 sem editar o config.yml manualmente.
 
-Uso: python start.py
+Uso: python start.py   ← sem precisar instalar nada antes
 """
 import sys
 import os
 import re
+import subprocess
 
-# Suporte a PyYAML quando disponível, senão usa serialização própria
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+
+def _bootstrap():
+    """Garante que PyYAML está disponível, instalando se necessário."""
+    try:
+        import yaml  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    print("  PyYAML não encontrado — instalando automaticamente...")
+
+    # Tenta instalar no ambiente atual (venv ou sistema)
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "pyyaml", "-q"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("  PyYAML instalado com sucesso.\n")
+        return
+
+    # Fallback: instala só para o usuário atual
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "pyyaml", "--user", "-q"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("  PyYAML instalado (--user) com sucesso.\n")
+        return
+
+    print("  Não foi possível instalar PyYAML automaticamente.")
+    print("  Execute manualmente: pip install pyyaml")
+    sys.exit(1)
+
+
+_bootstrap()
+import yaml  # noqa: E402 — importado após bootstrap garantido
 
 CONFIG_FILE = "config.yml"
 
@@ -55,56 +88,16 @@ def err(msg: str):
     print(f"  {_c('red', '✗')} {msg}")
 
 
-# ─── YAML simples (fallback quando PyYAML não está instalado) ─────────────────
-
-def _dump_yaml(data: dict, indent: int = 0) -> str:
-    """Serializa dict para YAML legível sem dependências externas."""
-    lines = []
-    pad = "  " * indent
-    for key, value in data.items():
-        if isinstance(value, dict):
-            lines.append(f"{pad}{key}:")
-            lines.append(_dump_yaml(value, indent + 1))
-        elif isinstance(value, list):
-            lines.append(f"{pad}{key}:")
-            for item in value:
-                lines.append(f"{pad}  - {item}")
-        elif isinstance(value, float):
-            lines.append(f"{pad}{key}: {value}")
-        elif isinstance(value, bool):
-            lines.append(f"{pad}{key}: {'true' if value else 'false'}")
-        elif isinstance(value, int):
-            lines.append(f"{pad}{key}: {value}")
-        elif value is None:
-            lines.append(f"{pad}{key}:")
-        else:
-            # String — usar aspas se contiver caracteres especiais
-            if any(c in str(value) for c in [':', '#', '{', '}', '[', ']', '&', '*', '?', '|', '-', '<', '>', '=', '!', '%', '@', '`']):
-                lines.append(f'{pad}{key}: "{value}"')
-            else:
-                lines.append(f"{pad}{key}: {value}")
-    return "\n".join(lines)
-
-
 def load_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         return _default_config()
     with open(CONFIG_FILE) as f:
-        content = f.read()
-    if HAS_YAML:
-        return yaml.safe_load(content) or _default_config()
-    warn(f"PyYAML não disponível. Execute: pip install pyyaml")
-    warn("Configuração carregada em modo leitura apenas.")
-    return _default_config()
+        return yaml.safe_load(f) or _default_config()
 
 
 def save_config(config: dict):
-    if HAS_YAML:
-        with open(CONFIG_FILE, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    else:
-        with open(CONFIG_FILE, "w") as f:
-            f.write(_dump_yaml(config))
+    with open(CONFIG_FILE, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     ok(f"Configuração salva em {CONFIG_FILE}")
 
 
@@ -383,9 +376,6 @@ def main():
     print(f"\n{_c('bold', '╔══════════════════════════════════╗')}")
     print(f"{_c('bold', '║     DOWN NEWS — Configuração     ║')}")
     print(f"{_c('bold', '╚══════════════════════════════════╝')}")
-    if not HAS_YAML:
-        warn("PyYAML não encontrado. Instale com: pip install pyyaml")
-        warn("Sem ele, não é possível salvar alterações.")
 
     config = load_config()
     n_services = len(config.get("services", {}))
@@ -419,9 +409,6 @@ def main():
             changed = True
 
         elif action == "Salvar e sair":
-            if not HAS_YAML:
-                err("PyYAML é necessário para salvar. Instale com: pip install pyyaml")
-                break
             save_config(config)
             print()
             ok("Pronto! Faça push do config.yml atualizado para o GitHub.")
