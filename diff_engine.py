@@ -13,70 +13,64 @@ class DiffEngine:
 
         changes = []
 
+        # Mudança de status global
         prev_status = previous.get("status", "operational")
         curr_status = current.get("status", "operational")
         if prev_status != curr_status:
             if curr_status == "operational":
-                changes.append(
-                    {
-                        "type": "resolved",
-                        "service": service_id,
-                        "from": prev_status,
-                        "to": curr_status,
-                        "critical": False,
-                    }
-                )
+                changes.append({
+                    "type": "resolved",
+                    "service": service_id,
+                    "from": prev_status,
+                    "to": curr_status,
+                    "critical": False,
+                })
             else:
-                changes.append(
-                    {
-                        "type": "status_change",
-                        "service": service_id,
-                        "from": prev_status,
-                        "to": curr_status,
-                        "critical": curr_status in CRITICAL_STATUSES,
-                    }
-                )
+                changes.append({
+                    "type": "status_change",
+                    "service": service_id,
+                    "from": prev_status,
+                    "to": curr_status,
+                    "critical": curr_status in CRITICAL_STATUSES,
+                })
 
+        # Novos incidentes
         prev_incident_ids = {i["id"] for i in previous.get("incidents", [])}
         for incident in current.get("incidents", []):
             if incident["id"] not in prev_incident_ids:
-                changes.append(
-                    {
-                        "type": "new_incident",
-                        "service": service_id,
-                        "incident": incident,
-                        "critical": incident.get("impact") in ("critical", "major"),
-                    }
-                )
+                changes.append({
+                    "type": "new_incident",
+                    "service": service_id,
+                    "incident": incident,
+                    "critical": incident.get("impact") in ("critical", "major"),
+                })
 
+        # Incidentes resolvidos
         curr_incident_ids = {i["id"] for i in current.get("incidents", [])}
         for incident in previous.get("incidents", []):
             if incident["id"] not in curr_incident_ids and curr_status == "operational":
-                changes.append(
-                    {
-                        "type": "resolved",
-                        "service": service_id,
-                        "incident": incident,
-                        "critical": False,
-                    }
-                )
+                changes.append({
+                    "type": "resolved",
+                    "service": service_id,
+                    "incident": incident,
+                    "critical": False,
+                })
 
-        prev_dd = previous.get("downdetector_br", {})
-        curr_dd = current.get("downdetector_br", {})
-        prev_ratio = prev_dd.get("spike_ratio", 1.0)
-        curr_ratio = curr_dd.get("spike_ratio", 1.0)
-        if (
-            curr_ratio >= self.downdetector_threshold
-            and prev_ratio < self.downdetector_threshold
-        ):
-            changes.append(
-                {
+        # Spikes Downdetector por região
+        prev_dd = previous.get("downdetector", {})
+        curr_dd = current.get("downdetector", {})
+        for region, curr_data in curr_dd.items():
+            prev_data = prev_dd.get(region, {})
+            prev_ratio = prev_data.get("spike_ratio", 1.0)
+            curr_ratio = curr_data.get("spike_ratio", 1.0)
+            if curr_ratio >= self.downdetector_threshold and prev_ratio < self.downdetector_threshold:
+                changes.append({
                     "type": "downdetector_spike",
                     "service": service_id,
+                    "region": region,
                     "spike_ratio": curr_ratio,
-                    "reports_1h": curr_dd.get("reports_1h", 0),
+                    "reports_1h": curr_data.get("reports_1h", 0),
                     "critical": True,
-                }
-            )
+                })
 
         return changes

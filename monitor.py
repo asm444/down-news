@@ -31,11 +31,11 @@ def load_config(path: str = "config.yml") -> dict:
         return yaml.safe_load(f)
 
 
-def build_webhooks() -> dict:
-    channels = [
+def build_webhooks(config: dict) -> dict:
+    channels = config.get("channels", [
         "dn-claude", "dn-openai", "dn-gemini",
         "dn-microsoft", "dn-cloud", "dn-dev", "dn-geral",
-    ]
+    ])
     webhooks = {
         ch: url
         for ch in channels
@@ -45,6 +45,18 @@ def build_webhooks() -> dict:
     if missing:
         logger.warning("Webhooks não configurados para: %s", ", ".join(missing))
     return webhooks
+
+
+def _get_dd_slugs(svc_config: dict) -> dict:
+    """Extrai slugs do Downdetector do config, suportando formato novo e legado."""
+    dd = svc_config.get("downdetector")
+    if isinstance(dd, dict):
+        return {k: v for k, v in dd.items() if v}
+    # Compatibilidade com formato antigo: downdetector_slug (somente BR)
+    legacy = svc_config.get("downdetector_slug")
+    if legacy:
+        return {"br": legacy}
+    return {}
 
 
 def run_monitor():
@@ -57,29 +69,36 @@ def run_monitor():
     delay = config.get("discord", {}).get("delay_between_webhooks", 1)
 
     engine = DiffEngine(downdetector_threshold=dd_threshold)
-    notifier = DiscordNotifier(build_webhooks(), delay=delay)
+    notifier = DiscordNotifier(build_webhooks(config), delay=delay)
     dd_scraper = DowndetectorScraper()
 
     services = config.get("services", {})
     logger.info("Iniciando monitoramento de %d serviços", len(services))
 
     for service_id, svc_config in services.items():
-        adapter_class = ADAPTER_MAP.get(svc_config["type"])
-        if not adapter_class:
-            logger.warning("Tipo desconhecido '%s' para serviço %s", svc_config["type"], service_id)
-            continue
+        svc_type = svc_config.get("type", "")
+        current: dict = {}
 
-        adapter = adapter_class(service_id, svc_config)
-        current = adapter.fetch()
-        if current is None:
-            logger.warning("[%s] Fetch falhou — estado anterior mantido", service_id)
-            continue
+        if svc_type == "downdetector_only":
+            # Serviço sem status page oficial — apenas Downdetector
+            current = {"status": "operational", "incidents": [], "components": {}}
+        else:
+            adapter_class = ADAPTER_MAP.get(svc_type)
+            if not adapter_class:
+                logger.warning("Tipo desconhecido '%s' para serviço %s", svc_type, service_id)
+                continue
+            fetched = adapter_class(service_id, svc_config).fetch()
+            if fetched is None:
+                logger.warning("[%s] Fetch falhou — estado anterior mantido", service_id)
+                continue
+            current = fetched
 
-        dd_slug = svc_config.get("downdetector_slug")
-        if dd_slug:
-            dd_data = dd_scraper.fetch(dd_slug)
-            if dd_data:
-                current["downdetector_br"] = dd_data
+        # Downdetector: todas as regiões configuradas
+        dd_slugs = _get_dd_slugs(svc_config)
+        if dd_slugs:
+            dd_results = dd_scraper.fetch_all_regions(dd_slugs)
+            if dd_results:
+                current["downdetector"] = dd_results
 
         previous = sm.get_service(service_id)
         changes = engine.diff(service_id, previous, current)

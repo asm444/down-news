@@ -180,23 +180,57 @@ Se os webhooks estiverem corretos, o bot não vai enviar mensagem na primeira ru
 
 ## Personalização
 
-### Adicionar um novo serviço
+### Usando o wizard interativo (recomendado)
 
-Edite `config.yml` e adicione uma entrada:
+```bash
+python start.py
+```
+
+O wizard permite adicionar, editar e remover serviços sem editar o YAML manualmente. Ao sair, mostra exatamente quais secrets do GitHub precisam ser criados.
+
+---
+
+### Editando o config.yml manualmente
+
+#### Adicionar um serviço com status page oficial
 
 ```yaml
 services:
-  novo_servico:
-    name: "Nome do Serviço"
+  netflix:
+    name: "Netflix"
     type: statuspage          # statuspage | google | microsoft | aws | google_cloud
-    base_url: "https://status.exemplo.com"
-    discord_channel: dn-cloud # canal Discord para os alertas
-    downdetector_slug: "nome-no-downdetector"  # slug da URL do Downdetector BR
+    base_url: "https://status.netflix.com"
+    discord_channel: dn-geral
+    downdetector:
+      br: "netflix"           # slug do downdetector.com.br/status/netflix/
+      global: "netflix"       # slug do downdetector.com/status/netflix/
 ```
 
-Para o `downdetector_slug`: acesse `https://downdetector.com.br/status/SLUG/` e use o SLUG da URL.
+#### Adicionar um serviço somente pelo Downdetector
 
-### Remover um serviço
+Para serviços sem status page oficial, use o tipo `downdetector_only`:
+
+```yaml
+services:
+  whatsapp:
+    name: "WhatsApp"
+    type: downdetector_only
+    discord_channel: dn-geral
+    downdetector:
+      br: "whatsapp"
+      global: "whatsapp"
+```
+
+#### Monitorar apenas uma região do Downdetector
+
+Omita a chave da região que não quer monitorar:
+
+```yaml
+downdetector:
+  br: "hetzner-online"    # só BR — sem "global:"
+```
+
+#### Remover um serviço
 
 Apague a entrada correspondente do `config.yml`.
 
