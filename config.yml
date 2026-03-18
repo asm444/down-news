@@ -1,0 +1,89 @@
+services:
+  claude:
+    name: "Claude (Anthropic)"
+    type: statuspage
+    base_url: "https://status.claude.com"
+    discord_channel: dn-claude
+    downdetector_slug: "chatbot-anthropic"
+
+  openai:
+    name: "ChatGPT (OpenAI)"
+    type: statuspage
+    base_url: "https://status.openai.com"
+    discord_channel: dn-openai
+    downdetector_slug: "chatgpt"
+
+  gemini:
+    name: "Gemini (Google)"
+    type: google
+    base_url: "https://status.google.com"
+    discord_channel: dn-gemini
+    downdetector_slug: "google"
+
+  office365:
+    name: "Office 365 / Teams"
+    type: microsoft
+    base_url: "https://status.office.com"
+    discord_channel: dn-microsoft
+    downdetector_slug: "microsoft-office-365"
+
+  azure:
+    name: "Azure"
+    type: azure
+    base_url: "https://status.azure.com"
+    discord_channel: dn-microsoft
+    downdetector_slug: "microsoft-azure"
+
+  aws:
+    name: "AWS"
+    type: aws
+    base_url: "https://health.aws.amazon.com/health/status"
+    discord_channel: dn-cloud
+    downdetector_slug: "amazon-web-services"
+
+  gcp:
+    name: "GCP"
+    type: google_cloud
+    base_url: "https://status.cloud.google.com"
+    discord_channel: dn-cloud
+    downdetector_slug: "google-cloud"
+
+  cloudflare:
+    name: "Cloudflare"
+    type: statuspage
+    base_url: "https://www.cloudflarestatus.com"
+    discord_channel: dn-cloud
+    downdetector_slug: "cloudflare"
+
+  hetzner:
+    name: "Hetzner"
+    type: statuspage
+    base_url: "https://status.hetzner.com"
+    discord_channel: dn-cloud
+    downdetector_slug: "hetzner-online"
+
+  github:
+    name: "GitHub"
+    type: statuspage
+    base_url: "https://githubstatus.com"
+    discord_channel: dn-dev
+    downdetector_slug: "github"
+
+  discord:
+    name: "Discord"
+    type: statuspage
+    base_url: "https://discordstatus.com"
+    discord_channel: dn-dev
+    downdetector_slug: "discord"
+
+thresholds:
+  downdetector_spike_ratio: 5.0
+  downdetector_baseline_hours: 24
+  request_timeout: 10
+  retry_attempts: 3
+  retry_backoff: 2
+
+discord:
+  mention: "@here"
+  timezone: "America/Sao_Paulo"
+  delay_between_webhooks: 1
